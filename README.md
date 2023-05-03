@@ -1,5 +1,6 @@
 # helpcrunch-stats
 
+git clone this repo
 
 ```bash
 $ npm install
