@@ -17,15 +17,24 @@ const out = new ConsoleLogColors();
 // const apiUrl = "https://api.helpcrunch.com/v1/chats?sort=chats.closedAt&order=asc";
 
 const now = new Date();
-const daysAgo = 30;
+const daysAgo = config.DAYS_TO_QUERY;
 const startDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+// const timestampSince = Math.floor(startDate.getTime());
 const timestampSince = Math.floor(startDate.getTime() / 1000);
 
-(async () => {
+(async () => {})();
+
+doChats();
+// doCustomers();
+
+
+
+/* CHATS GROUPING BY TAGS */
+async function doChats() {
   const chatsGroupedByTags = await getChatsGroupedByTags(timestampSince, tags);
   const allChats = [];
-  processData({ chatsGroupedByTags, allChats, daysAgo });
-})();
+  processChatData({ chatsGroupedByTags, allChats, daysAgo });
+}
 
 async function getChatsGroupedByTags(timestampSince, tags) {
   const chatsGroupedByTags = {};
@@ -91,7 +100,7 @@ async function fetchPaginatedChats(
   return data;
 }
 
-function processData({ chatsGroupedByTags, allChats, daysAgo }) {
+function processChatData({ chatsGroupedByTags, allChats, daysAgo }) {
   // const data = [
   //   { id: 1, tags: ["moving money", "evmos"] },
   //   { id: 2, tags: ["evmos", "account"] },
@@ -120,13 +129,103 @@ function processData({ chatsGroupedByTags, allChats, daysAgo }) {
   });
 }
 
-// const numChats = data.length;
-// const numChatsWithTag = Object.values(tagCounts).reduce(
-//   (sum, count) => sum + count,
-//   0
-// );
-// const numChatsWithoutTag = numChats - numChatsWithTag;
+// /* CUSTOMERS GROUPING BY TAGS */
+async function doCustomers() {
+  const customersGroupedByTags = await getCustomersByTags(timestampSince, tags);
+  const allCustomers = [];
+  processCustomerData({ customersGroupedByTags, allCustomers, daysAgo });
+}
 
-// console.log(`Total Number of Chats: ${numChats}`);
-// console.log(`Number of Chats with Tags: ${numChatsWithTag}`);
-// console.log(`Number of Chats without Tags: ${numChatsWithoutTag}`);
+async function getCustomersByTags(timestampSince, tags) {
+  const customersGroupedByTags = {};
+  for (const tag of tags) {
+    out.command(`Fetching customers for tag: "${tag.name}"...`);
+    const customersByTag = await fetchPaginatedCustomers(
+      timestampSince,
+      tag.name
+    );
+    if (customersByTag.length) {
+      out.info(`... Found ${customersByTag.length}`);
+    }
+
+    customersGroupedByTags[tag.name] = customersByTag;
+  }
+  return customersGroupedByTags;
+}
+
+async function fetchPaginatedCustomers(
+  timestampSince,
+  tagName = null,
+  offset = 0,
+  limit = 100,
+  data = []
+) {
+  console.log(timestampSince);
+  const url = "https://api.helpcrunch.com/v1/customers/search";
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: "Bearer " + config.API_KEY,
+  };
+
+  const requestBody = {
+    comparison: "AND",
+    filter: [
+      {
+        field: "customers.lastSeen",
+        operator: ">",
+        value: `${timestampSince}`,
+      },
+      {
+        field: "customers.tagsData",
+        operator: "=",
+        value: [{ name: tagName }],
+      },
+    ],
+    limit: limit,
+    offset: offset,
+    sort: "customers.lastSeen",
+    order: "DESC",
+  };
+  console.log(requestBody);
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(requestBody),
+  });
+  const json = await response.json();
+  try {
+    data.push(...json.data);
+  } catch (e) {
+    console.log(json);
+  }
+  if (json.total > offset + limit) {
+    return fetchPaginatedCustomers(url, offset + limit, limit, data);
+  }
+
+  return data;
+}
+
+function processCustomerData({
+  customersGroupedByTags,
+  allCustomers,
+  daysAgo,
+}) {
+  // Extract all tags from the data and count their occurrences
+
+  const tagCounts = {};
+  for (const tag in customersGroupedByTags) {
+    const customersByTag = customersGroupedByTags[tag];
+    tagCounts[tag] = customersByTag.length;
+  }
+
+  // Output the tag counts and total number of chats with and without tags
+  console.log();
+  console.log();
+  console.log();
+  console.log(`Customer count by tags in the last ${daysAgo} days:`);
+  Object.entries(tagCounts).forEach(([tag, count]) => {
+    if (count > 0) {
+      console.log(`- ${tag}: ${count}`);
+    }
+  });
+}
