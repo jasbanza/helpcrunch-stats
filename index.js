@@ -22,12 +22,8 @@ const startDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
 // const timestampSince = Math.floor(startDate.getTime());
 const timestampSince = Math.floor(startDate.getTime() / 1000);
 
-(async () => {})();
-
 doChats();
 // doCustomers();
-
-
 
 /* CHATS GROUPING BY TAGS */
 async function doChats() {
@@ -40,7 +36,12 @@ async function getChatsGroupedByTags(timestampSince, tags) {
   const chatsGroupedByTags = {};
   for (const tag of tags) {
     out.command(`Fetching chats for tag: "${tag.name}"...`);
-    const chatsByTag = await fetchPaginatedChats(timestampSince, tag.name);
+
+    // const chatsByTag = await fetchPaginatedChats(timestampSince, tag.name);
+    const chatsByTag = await fetchPaginatedChats({
+      timestampSince: timestampSince,
+      tagName: tag.name,
+    });
     if (chatsByTag.length) {
       out.info(`... Found ${chatsByTag.length}`);
     }
@@ -50,13 +51,13 @@ async function getChatsGroupedByTags(timestampSince, tags) {
   return chatsGroupedByTags;
 }
 
-async function fetchPaginatedChats(
+async function fetchPaginatedChats({
   timestampSince,
   tagName = null,
   offset = 0,
   limit = 100,
-  data = []
-) {
+  data = [],
+}) {
   const url = "https://api.helpcrunch.com/v1/chats/search";
   const headers = {
     "Content-Type": "application/json",
@@ -89,15 +90,23 @@ async function fetchPaginatedChats(
   });
   const json = await response.json();
   try {
-    data.push(...json.data);
+    if (json.data) {
+      data.push(...json.data);
+      if (json.total > offset + limit) {
+        const nextData = await fetchPaginatedChats({
+          timestampSince: timestampSince,
+          tagName: tagName,
+          offset: offset + limit,
+          limit: limit,
+          data: data,
+        });
+        return nextData;
+      }
+    }
+    return data;
   } catch (e) {
     //console.log(json);
   }
-  if (json.total > offset + limit) {
-    return fetchPaginatedChats(url, offset + limit, limit, data);
-  }
-
-  return data;
 }
 
 function processChatData({ chatsGroupedByTags, allChats, daysAgo }) {
@@ -112,9 +121,11 @@ function processChatData({ chatsGroupedByTags, allChats, daysAgo }) {
   // Extract all tags from the data and count their occurrences
 
   const tagCounts = {};
+  let totalCount = 0;
   for (const tag in chatsGroupedByTags) {
     const chatsByTag = chatsGroupedByTags[tag];
     tagCounts[tag] = chatsByTag.length;
+    totalCount += chatsByTag.length;
   }
 
   // Output the tag counts and total number of chats with and without tags
@@ -122,7 +133,14 @@ function processChatData({ chatsGroupedByTags, allChats, daysAgo }) {
   console.log();
   console.log();
   console.log(`Ticket count by tags in the last ${daysAgo} days:`);
-  Object.entries(tagCounts).forEach(([tag, count]) => {
+  const arrTagData = Object.entries(tagCounts);
+
+  arrTagData.sort((a, b) => b[1] - a[1]);
+
+  // console.log(arrTagData);
+  console.log(`Total tag count: ${totalCount}`);
+  console.log("");
+  arrTagData.forEach(([tag, count]) => {
     if (count > 0) {
       console.log(`- ${tag}: ${count}`);
     }
